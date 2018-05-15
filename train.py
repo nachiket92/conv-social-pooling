@@ -67,14 +67,6 @@ for epoch_num in range(numEpochs):
         st_time = time.time()
         hist, nbrs, mask, lat_enc, lon_enc, fut, op_mask = data
 
-        # Initialize Variables
-        hist = Variable(hist)
-        nbrs = Variable(nbrs)
-        mask = Variable(mask)
-        lat_enc = Variable(lat_enc)
-        lon_enc = Variable(lon_enc)
-        fut = Variable(fut)
-        op_mask = Variable(op_mask)
         if args['use_cuda']:
             hist = hist.cuda()
             nbrs = nbrs.cuda()
@@ -130,15 +122,7 @@ for epoch_num in range(numEpochs):
     for i, data  in enumerate(valDataloader):
         st_time = time.time()
         hist, nbrs, mask, lat_enc, lon_enc, fut, op_mask = data
-
-        # Initialize Variables
-        hist = Variable(hist)
-        nbrs = Variable(nbrs)
-        mask = Variable(mask)
-        lat_enc = Variable(lat_enc)
-        lon_enc = Variable(lon_enc)
-        fut = Variable(fut)
-        op_mask = Variable(op_mask)
+        
         if args['use_cuda']:
             hist = hist.cuda()
             nbrs = nbrs.cuda()
