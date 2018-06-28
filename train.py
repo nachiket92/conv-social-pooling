@@ -144,7 +144,7 @@ for epoch_num in range(numEpochs):
             fut_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
             l = maskedNLL(fut_pred, fut, op_mask)
 
-        avg_val_loss += l
+        avg_val_loss += l.item()
         val_batch_count += 1
 
     print(avg_val_loss/val_batch_count)
