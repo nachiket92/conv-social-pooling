@@ -174,7 +174,7 @@ def maskedNLL(y_pred, y_gt, mask):
     return lossVal
 
 ## NLL for sequence, outputs sequence of NLL values for each time-step, uses mask for variable output lengths, used for evaluation
-def maskedNLLTest(fut_pred, lat_pred, lon_pred, fut, op_mask, num_lat_classes=3, num_lon_classes = 2,use_maneuvers = True, avg_along_length = False):
+def maskedNLLTest(fut_pred, lat_pred, lon_pred, fut, op_mask, num_lat_classes=3, num_lon_classes = 2,use_maneuvers = True, avg_along_time = False):
     if use_maneuvers:
         acc = torch.zeros(op_mask.shape[0],op_mask.shape[1],num_lon_classes*num_lat_classes).cuda()
         count = 0
@@ -197,10 +197,13 @@ def maskedNLLTest(fut_pred, lat_pred, lon_pred, fut, op_mask, num_lat_classes=3,
                 count+=1
         acc = -logsumexp(acc,dim = 2)
         acc = acc * op_mask[:,:,0]
-        if avg_along_length:
+        if avg_along_time:
             lossVal = torch.sum(acc) / torch.sum(op_mask[:, :, 0])
+            return lossVal
         else:
-            lossVal = torch.sum(acc,dim=1) / torch.sum(op_mask[:,:,0],dim=1)
+            lossVal = torch.sum(acc,dim=1)
+            counts = torch.sum(op_mask[:,:,0],dim=1)
+            return lossVal,counts
     else:
         acc = torch.zeros(op_mask.shape[0], op_mask.shape[1], 1).cuda()
         y_pred = fut_pred
@@ -217,12 +220,14 @@ def maskedNLLTest(fut_pred, lat_pred, lon_pred, fut, op_mask, num_lat_classes=3,
         torch.pow(sigX, 2) * torch.pow(x - muX, 2) + torch.pow(sigY, 2) * torch.pow(y - muY, 2) - 2 * rho * torch.pow(
             sigX, 1) * torch.pow(sigY, 1) * (x - muX) * (y - muY)) - torch.log(sigX * sigY * ohr)
         acc[:, :, 0] = out
-        acc = acc * op_mask[:, :, 0]
-        if avg_along_length:
+        acc = acc * op_mask[:, :, 0:1]
+        if avg_along_time:
             lossVal = torch.sum(acc[:, :, 0]) / torch.sum(op_mask[:, :, 0])
+            return lossVal
         else:
-            lossVal = torch.sum(acc[:,:,0], dim=1) / torch.sum(op_mask[:, :, 0], dim=1)
-    return lossVal
+            lossVal = torch.sum(acc[:,:,0], dim=1)
+            counts = torch.sum(op_mask[:, :, 0], dim=1)
+            return lossVal,counts
 
 ## Batchwise MSE loss, uses mask for variable output lengths
 def maskedMSE(y_pred, y_gt, mask):
@@ -239,7 +244,7 @@ def maskedMSE(y_pred, y_gt, mask):
     return lossVal
 
 ## MSE loss for complete sequence, outputs a sequence of MSE values, uses mask for variable output lengths, used for evaluation
-def maskedMSEall(y_pred, y_gt, mask):
+def maskedMSETest(y_pred, y_gt, mask):
     acc = torch.zeros_like(mask)
     muX = y_pred[:, :, 0]
     muY = y_pred[:, :, 1]
