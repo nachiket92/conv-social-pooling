@@ -1,10 +1,10 @@
 from __future__ import print_function
 import torch
 from model import highwayNet
-from utils import ngsimDataset,maskedNLL,maskedNLLTest
+from utils import ngsimDataset,maskedNLL,maskedMSE,maskedNLLTest
 from torch.utils.data import DataLoader
 import time
-
+import math
 
 
 ## Network Arguments
@@ -24,6 +24,8 @@ args['num_lon_classes'] = 2
 args['use_maneuvers'] = True
 args['train_flag'] = True
 
+
+
 # Initialize network
 net = highwayNet(args)
 if args['use_cuda']:
@@ -31,10 +33,12 @@ if args['use_cuda']:
 
 
 ## Initialize optimizer
-numEpochs = 2
+pretrainEpochs = 5
+trainEpochs = 3
 optimizer = torch.optim.Adam(net.parameters())
 batch_size = 128
 crossEnt = torch.nn.BCELoss()
+
 
 ## Initialize data loaders
 trSet = ngsimDataset('data/TrainSet.mat')
@@ -46,9 +50,13 @@ valDataloader = DataLoader(valSet,batch_size=batch_size,shuffle=True,num_workers
 ## Variables holding train and validation loss values:
 train_loss = []
 val_loss = []
-prev_val_loss = 'N/A'
+prev_val_loss = math.inf
 
-for epoch_num in range(numEpochs):
+for epoch_num in range(pretrainEpochs+trainEpochs):
+    if epoch_num == 0:
+        print('Pre-training with MSE loss')
+    elif epoch_num == pretrainEpochs:
+        print('Training with NLL loss')
 
 
     ## Train:_________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________
@@ -78,12 +86,20 @@ for epoch_num in range(numEpochs):
         # Forward pass
         if args['use_maneuvers']:
             fut_pred, lat_pred, lon_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
-            l = maskedNLL(fut_pred, fut, op_mask) + crossEnt(lat_pred, lat_enc) + crossEnt(lon_pred, lon_enc)
-            avg_lat_acc += (torch.sum(torch.max(lat_pred.data, 1)[1] == torch.max(lat_enc.data, 1)[1])).item() / lat_enc.size()[0]
-            avg_lon_acc += (torch.sum(torch.max(lon_pred.data, 1)[1] == torch.max(lon_enc.data, 1)[1])).item() / lon_enc.size()[0]
+            # Pre-train with MSE loss to speed up training
+            if epoch_num < pretrainEpochs:
+                l = maskedMSE(fut_pred, fut, op_mask)
+            else:
+            # Train with NLL loss
+                l = maskedNLL(fut_pred, fut, op_mask) + crossEnt(lat_pred, lat_enc) + crossEnt(lon_pred, lon_enc)
+                avg_lat_acc += (torch.sum(torch.max(lat_pred.data, 1)[1] == torch.max(lat_enc.data, 1)[1])).item() / lat_enc.size()[0]
+                avg_lon_acc += (torch.sum(torch.max(lon_pred.data, 1)[1] == torch.max(lon_enc.data, 1)[1])).item() / lon_enc.size()[0]
         else:
             fut_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
-            l = maskedNLL(fut_pred, fut, op_mask)
+            if epoch_num < pretrainEpochs:
+                l = maskedMSE(fut_pred, fut, op_mask)
+            else:
+                l = maskedNLL(fut_pred, fut, op_mask)
 
         # Backprop and update weights
         optimizer.zero_grad()
@@ -98,7 +114,7 @@ for epoch_num in range(numEpochs):
 
         if i%100 == 99:
             eta = avg_tr_time/100*(len(trSet)/batch_size-i)
-            print("Epoch no:",epoch_num+1,"| Epoch progress(%):",format(i/(len(trSet)/batch_size)*100,'0.2f'), "| Avg train loss:",format(avg_tr_loss/100,'0.4f'),"| Acc:",format(avg_lat_acc,'0.4f'),format(avg_lon_acc,'0.4f'), "| Validation loss prev epoch",prev_val_loss, "| ETA(s):",int(eta))
+            print("Epoch no:",epoch_num+1,"| Epoch progress(%):",format(i/(len(trSet)/batch_size)*100,'0.2f'), "| Avg train loss:",format(avg_tr_loss/100,'0.4f'),"| Acc:",format(avg_lat_acc,'0.4f'),format(avg_lon_acc,'0.4f'), "| Validation loss prev epoch",format(prev_val_loss,'0.4f'), "| ETA(s):",int(eta))
             train_loss.append(avg_tr_loss/100)
             avg_tr_loss = 0
             avg_lat_acc = 0
@@ -121,7 +137,8 @@ for epoch_num in range(numEpochs):
     for i, data  in enumerate(valDataloader):
         st_time = time.time()
         hist, nbrs, mask, lat_enc, lon_enc, fut, op_mask = data
-        
+
+
         if args['use_cuda']:
             hist = hist.cuda()
             nbrs = nbrs.cuda()
@@ -133,16 +150,23 @@ for epoch_num in range(numEpochs):
 
         # Forward pass
         if args['use_maneuvers']:
-            fut_pred, lat_pred, lon_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
-            fut_pred_data = []
-            for k in range(len(fut_pred)):
-                fut_pred_data.append(fut_pred[k].data)
-            l = maskedNLL(fut_pred, fut, op_mask) + crossEnt(lat_pred, lat_enc) + crossEnt(lon_pred, lon_enc)
-            avg_val_lat_acc += (torch.sum(torch.max(lat_pred.data, 1)[1] == torch.max(lat_enc.data, 1)[1])).item() / lat_enc.size()[0]
-            avg_val_lon_acc += (torch.sum(torch.max(lon_pred.data, 1)[1] == torch.max(lon_enc.data, 1)[1])).item() / lon_enc.size()[0]
+            if epoch_num < pretrainEpochs:
+                # During pre-training with MSE loss, validate with MSE for true maneuver class trajectory
+                net.train_flag = True
+                fut_pred, _ , _ = net(hist, nbrs, mask, lat_enc, lon_enc)
+                l = maskedMSE(fut_pred, fut, op_mask)
+            else:
+                # During training with NLL loss, validate with NLL over multi-modal distribution
+                fut_pred, lat_pred, lon_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
+                l = maskedNLLTest(fut_pred, lat_pred, lon_pred, fut, op_mask,avg_along_time = True)
+                avg_val_lat_acc += (torch.sum(torch.max(lat_pred.data, 1)[1] == torch.max(lat_enc.data, 1)[1])).item() / lat_enc.size()[0]
+                avg_val_lon_acc += (torch.sum(torch.max(lon_pred.data, 1)[1] == torch.max(lon_enc.data, 1)[1])).item() / lon_enc.size()[0]
         else:
             fut_pred = net(hist, nbrs, mask, lat_enc, lon_enc)
-            l = maskedNLL(fut_pred, fut, op_mask)
+            if epoch_num < pretrainEpochs:
+                l = maskedMSE(fut_pred, fut, op_mask)
+            else:
+                l = maskedNLL(fut_pred, fut, op_mask)
 
         avg_val_loss += l.item()
         val_batch_count += 1
@@ -152,12 +176,14 @@ for epoch_num in range(numEpochs):
     # Print validation loss and update display variables
     print('Validation loss :',format(avg_val_loss/val_batch_count,'0.4f'),"| Val Acc:",format(avg_val_lat_acc/val_batch_count*100,'0.4f'),format(avg_val_lon_acc/val_batch_count*100,'0.4f'))
     val_loss.append(avg_val_loss/val_batch_count)
-    prev_val_loss = format(avg_val_loss/val_batch_count,'0.4f')
+    prev_val_loss = avg_val_loss/val_batch_count
 
 
-    # torch.save(net.state_dict(),'trained_models/S_fc_nll.tar')
+
+
     #__________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________
 
+torch.save(net.state_dict(), 'trained_models/cslstm_m.tar')
 
 
 
