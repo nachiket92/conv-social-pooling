@@ -53,7 +53,7 @@ class highwayNet(nn.Module):
         self.soc_maxpool = torch.nn.MaxPool2d((2,1),padding = (1,0))
 
         # FC social pooling layer (for comparison):
-        self.soc_fc = torch.nn.Linear(self.soc_conv_depth * self.grid_size[0] * self.grid_size[1], (((args['grid_size'][0]-4)+1)//2)*self.conv_3x1_depth)
+        # self.soc_fc = torch.nn.Linear(self.soc_conv_depth * self.grid_size[0] * self.grid_size[1], (((args['grid_size'][0]-4)+1)//2)*self.conv_3x1_depth)
 
         # Decoder LSTM
         if self.use_maneuvers:
