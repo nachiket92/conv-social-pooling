@@ -51,20 +51,41 @@ for k = 1:6
     end
 end
 
+vehTrajs{1} = containers.Map;
+vehTrajs{2} = containers.Map;
+vehTrajs{3} = containers.Map;
+vehTrajs{4} = containers.Map;
+vehTrajs{5} = containers.Map;
+vehTrajs{6} = containers.Map;
 
+vehTimes{1} = containers.Map;
+vehTimes{2} = containers.Map;
+vehTimes{3} = containers.Map;
+vehTimes{4} = containers.Map;
+vehTimes{5} = containers.Map;
+vehTimes{6} = containers.Map;
 
 %% Parse fields (listed above):
 disp('Parsing fields...')
-poolobj = parpool(6);
 
-parfor ii = 1:6
-    for k = 1:length(traj{ii}(:,1));
-        
-        
+for ii = 1:6
+    vehIds = unique(traj{ii}(:,2));
+
+    for v = 1:length(vehIds)
+        vehTrajs{ii}(int2str(vehIds(v))) = traj{ii}(traj{ii}(:,2) == vehIds(v),:);
+    end
+    
+    timeFrames = unique(traj{ii}(:,3));
+
+    for v = 1:length(timeFrames)
+        vehTimes{ii}(int2str(timeFrames(v))) = traj{ii}(traj{ii}(:,3) == timeFrames(v),:);
+    end
+    
+    for k = 1:length(traj{ii}(:,1))        
         time = traj{ii}(k,3);
         dsId = traj{ii}(k,1);
         vehId = traj{ii}(k,2);
-        vehtraj = traj{ii}(traj{ii}(:,1)==dsId & traj{ii}(:,2)==vehId,:);
+        vehtraj = vehTrajs{ii}(int2str(vehId));
         ind = find(vehtraj(:,3)==time);
         ind = ind(1);
         lane = traj{ii}(k,6);
@@ -99,9 +120,10 @@ parfor ii = 1:6
         
         
         % Get grid locations:
-        frameEgo = traj{ii}(traj{ii}(:,1)==dsId & traj{ii}(:,3)==time & traj{ii}(:,6) == lane,:);
-        frameL = traj{ii}(traj{ii}(:,1)==dsId & traj{ii}(:,3)==time & traj{ii}(:,6) == lane-1,:);
-        frameR = traj{ii}(traj{ii}(:,1)==dsId & traj{ii}(:,3)==time & traj{ii}(:,6) == lane+1,:);
+        t = vehTimes{ii}(int2str(time));
+        frameEgo = t(t(:,6) == lane,:);
+        frameL = t(t(:,6) == lane-1,:);
+        frameR = t(t(:,6) == lane+1,:);
         if ~isempty(frameL)
             for l = 1:size(frameL,1)
                 y = frameL(l,5)-traj{ii}(k,5);
@@ -131,7 +153,6 @@ parfor ii = 1:6
     end
 end
 
-delete(poolobj);
 
 %% Split train, validation, test
 disp('Splitting into train, validation and test sets...')
@@ -230,7 +251,6 @@ save('ValSet','traj','tracks');
 traj = trajTs;
 tracks = tracksTs;
 save('TestSet','traj','tracks');
-
 
 
 
